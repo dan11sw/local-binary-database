@@ -1,7 +1,7 @@
 import { Buffer } from "node:buffer";
 import fs from "fs";
 
-import { convertBytesToString, readBytesFromFile, readByteStringFromFile, readStringFromBytes } from "../utils/read-bytes.js";
+import { readBytesFromFile, readByteStringFromFile, readStringFromBytes } from "../utils/read-bytes.js";
 import { isUndefinedOrNull } from "../utils/objector.js";
 
 
@@ -26,6 +26,11 @@ export default class ServerModel {
         this.#location = location ?? "";
     }
 
+    /**
+     * Вычисление байт, необходимых для формирования буфера для записи в бинарный файл
+     * @param {string} encoding Кодировка
+     * @returns {number} Размер буфера для представления модели
+     */
     #calcBytes(encoding = "utf-8") {
         const calc = Uint32Array.BYTES_PER_ELEMENT                                          // uint32
             + Uint16Array.BYTES_PER_ELEMENT + Buffer.from(this.#name, encoding).length      // uint16 + bytes
@@ -35,6 +40,10 @@ export default class ServerModel {
         return calc;
     }
 
+    /**
+     * Формирование буфера
+     * @returns {Buffer<ArrayBuffer>} Буфер, содержащий бинарные данные текущего экземпляра модели
+     */
     packageMsg() {
         // Выделяем память под буфер
         let buffer = Buffer.alloc(this.#calcBytes());
@@ -69,9 +78,14 @@ export default class ServerModel {
         return buffer;
     }
 
+    /**
+     * Загрузка данных для текущего экземпляра модели из буфера
+     * @param {Buffer<ArrayBuffer>} buffer Буфер
+     * @returns {boolean} Результат загрузки данных из буфера
+     */
     loadFromMsg(buffer) {
         if (!(buffer instanceof Buffer)) {
-            return;
+            return false;
         }
 
         // Создаём интерфейс для чтения данных из буфера байт
@@ -84,7 +98,7 @@ export default class ServerModel {
         // Чтение атрибута name
         const readName = readStringFromBytes(dataView, offset);
         if (isUndefinedOrNull(readName)) {
-            return;
+            return false;
         }
 
         offset = readName.new_offset;
@@ -92,7 +106,7 @@ export default class ServerModel {
         // Чтение атрибута ip
         const readIP = readStringFromBytes(dataView, offset);
         if (isUndefinedOrNull(readIP)) {
-            return;
+            return false;
         }
 
         offset = readIP.new_offset;
@@ -100,7 +114,7 @@ export default class ServerModel {
         // Чтение атрибута location
         const readLocation = readStringFromBytes(dataView, offset);
         if (isUndefinedOrNull(readLocation)) {
-            return;
+            return false;
         }
 
         offset = readLocation.new_offset;
@@ -110,13 +124,15 @@ export default class ServerModel {
         this.#name = readName.data;
         this.#ip = readIP.data;
         this.#location = readLocation.data;
+
+        return true;
     }
 
     /**
      * Чтение текущей структуры данных из файла
-     * @param {*} fd Дескриптор файла
+     * @param {number} fd Дескриптор файла
      * @param {number} position Текущее смещение файла
-     * @param {*} filepath Путь до файла
+     * @param {string} filepath Путь до файла
      * @returns {number | null} Результирующее смещение в файле
      */
     loadFromFile(fd, position = 0, filepath = "") {

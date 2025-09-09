@@ -1,20 +1,33 @@
 import fs from "fs";
 
+/**
+ * Чтение определённого числа байт из бинарного файла
+ * @param {number} fd Дескриптор открытого файла
+ * @param {number} position Смещение в бинарном файле
+ * @param {number} length Длина байт, которые нужно считать из файла
+ * @param {string} filepath Путь до файла (для логов)
+ * @returns {{buffer: Buffer<ArrayBuffer>, new_position: number}} Результат
+ */
 export function readBytesFromFile(fd, position, length, filepath = "") {
+    // Проверка на корректность типов
     if (typeof fd !== "number" ||
         typeof position !== "number" ||
         typeof length !== "number") {
         return null;
     }
 
+    // Определяем буфер размера length
     const buffer = Buffer.alloc(length);
+    // Считываем буфер из бинарного файла по определённому смещению и определённой длины
     const bytesRead = fs.readSync(fd, buffer, 0, length, position);
 
+    // Проверка на целостность данных
     if (bytesRead !== length) {
         console.log(`Ошибка: в файле \"${filepath}\" было считано ${bytesRead} байт из ${length}`);
         return null;
     }
 
+    // Изменяем смещение файла (вручную)
     position += bytesRead;
 
     return {
@@ -24,17 +37,22 @@ export function readBytesFromFile(fd, position, length, filepath = "") {
 }
 
 /**
- * Чтение строки из файла
- * @param {*} fd Дескриптор файла
- * @param {number} position Смещение в файле
+ * Чтение строки из бинарного файла
+ * @param {number} fd Дескриптор открытого файла
+ * @param {number} position Смещение в бинарном файле
+ * @param {string} filepath Путь к файлу (для лога)
+ * @returns {{data: string, new_position: number} | null} Результат
  */
 export function readByteStringFromFile(fd, position, filepath = "") {
+    // Проверка типов аргументов
     if (typeof fd !== "number" ||
         typeof position !== "number") {
         return null;
     }
 
+    // Определяем размер буфера, который содержит байты характеризующие размер строки
     let length = Uint16Array.BYTES_PER_ELEMENT;
+
     const bufferLen = Buffer.alloc(length);
     let bytesRead = fs.readSync(fd, bufferLen, 0, length, position);
 
@@ -46,8 +64,11 @@ export function readByteStringFromFile(fd, position, filepath = "") {
     position += bytesRead;
 
     length = bufferLen.readUint16BE();
-    const bufferName = Buffer.alloc(length);
-    bytesRead = fs.readSync(fd, bufferName, 0, length, position);
+    
+    // Определяем размер буфера для хранения байт строки
+    const buffer = Buffer.alloc(length);
+    // Чтение строки из бинарного файла с определённой размерностью
+    bytesRead = fs.readSync(fd, buffer, 0, length, position);
 
     if (bytesRead !== length) {
         console.log(`Ошибка: в файле \"${filepath}\" было считано ${bytesRead} байт из ${length}`);
@@ -57,15 +78,15 @@ export function readByteStringFromFile(fd, position, filepath = "") {
     position += bytesRead;
 
     return {
-        data: convertBytesToString(bufferName),
+        data: convertBytesToString(buffer), // Перед возвращением результата конвертируем байты в строку
         new_position: position
     };
 }
 
 /**
- * Получение строки из буфера
+ * Конвертация буфера байтов в строку
  * @param {Buffer} buffer 
- * @returns 
+ * @returns {string} Результирующая строка
  */
 export function convertBytesToString(buffer) {
     if (!(buffer instanceof Buffer)) {
@@ -83,17 +104,13 @@ export function convertBytesToString(buffer) {
 }
 
 /**
- * 
+ * Чтение строки из DataView (представления данных относительно буфера)
  * @param {DataView} dataView Экземпляр DataView
- * @param {number} offset Смещение
- * @returns 
+ * @param {number} offset Смещение бинарного файла
+ * @returns {{data: string, new_offset: number} | null} Результат
  */
 export function readStringFromBytes(dataView, offset) {
-    if (typeof offset !== "number") {
-        return null;
-    }
-
-    if (!(dataView instanceof DataView)) {
+    if ((typeof offset !== "number") || (!(dataView instanceof DataView))) {
         return null;
     }
 
