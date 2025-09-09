@@ -13,8 +13,18 @@ const model2 = new ServerModel();
 model2.loadFromMsg(model1.packageMsg());
 
 try {
-    const fd = fs.openSync(path.join(DataBaseDirectory, "data.bin"), "w+");
-    fs.writeFileSync(fd, model1.packageMsg());
+    const filepath = path.join(DataBaseDirectory, "data.bin");
+    const fd = fs.openSync(path.join(DataBaseDirectory, "data.bin"), "r");
+    
+    const model3 = new ServerModel();
+    model3.print();
+
+    console.log("Offset: ", model3.loadFromFile(fd, 0, filepath));
+    model3.print();
+
+    // fs.writeFileSync(fd, model1.packageMsg());
+
+    fs.closeSync(fd);
 } catch (err) {
     console.error('Ошибка:', err);
 }

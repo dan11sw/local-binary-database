@@ -1,18 +1,16 @@
 import { Buffer } from "node:buffer";
-import { readStringFromBytes } from "../utils/read-bytes.js";
+import fs from "fs";
 
+import { convertBytesToString, readBytesFromFile, readByteStringFromFile, readStringFromBytes } from "../utils/read-bytes.js";
+import { isUndefinedOrNull } from "../utils/objector.js";
 
-// id - uint32
-// name - uint16 + bytes
-// ip - uint16 + bytes
-// location - uint16 + bytes
 
 const DefaultIP = "127.0.0.1";
 export default class ServerModel {
-    #id;
-    #name;
-    #ip;
-    #location;
+    #id;        // uint32
+    #name;      // uint16 + bytes
+    #ip;        // uint16 + bytes
+    #location;  // uint16 + bytes
 
     /**
      * Конструктор модели сервера
@@ -84,34 +82,91 @@ export default class ServerModel {
         offset += Uint32Array.BYTES_PER_ELEMENT;
 
         // Чтение атрибута name
-        let name = "";
-        {
-            const { data, new_offset } = readStringFromBytes(dataView, offset);
-            offset = new_offset;
-            name = data;
+        const readName = readStringFromBytes(dataView, offset);
+        if (isUndefinedOrNull(readName)) {
+            return;
         }
+
+        offset = readName.new_offset;
 
         // Чтение атрибута ip
-        let ip = "";
-        {
-            const { data, new_offset } = readStringFromBytes(dataView, offset);
-            offset = new_offset;
-            ip = data;
+        const readIP = readStringFromBytes(dataView, offset);
+        if (isUndefinedOrNull(readIP)) {
+            return;
         }
 
+        offset = readIP.new_offset;
+
         // Чтение атрибута location
-        let location = "";
-        {
-            const { data, new_offset } = readStringFromBytes(dataView, offset);
-            offset = new_offset;
-            location = data;
+        const readLocation = readStringFromBytes(dataView, offset);
+        if (isUndefinedOrNull(readLocation)) {
+            return;
         }
+
+        offset = readLocation.new_offset;
 
         // Присвоение свойствам текущего объекта определённых данных
         this.#id = id;
-        this.#name = name;
-        this.#ip = ip;
-        this.#location = location;
+        this.#name = readName.data;
+        this.#ip = readIP.data;
+        this.#location = readLocation.data;
+    }
+
+    /**
+     * Чтение текущей структуры данных из файла
+     * @param {*} fd Дескриптор файла
+     * @param {number} position Текущее смещение файла
+     * @param {*} filepath Путь до файла
+     * @returns {number | null} Результирующее смещение в файле
+     */
+    loadFromFile(fd, position = 0, filepath = "") {
+        if (typeof fd !== "number" || typeof position !== "number" || fd <= 0) {
+            return null;
+        }
+
+        try {
+            const readId = readBytesFromFile(fd, position, Uint32Array.BYTES_PER_ELEMENT, filepath);
+            if (isUndefinedOrNull(readId)) {
+                return null;
+            }
+
+            position = readId.new_position;
+
+            // Чтение названия сервера
+            const readName = readByteStringFromFile(fd, position);
+            if (isUndefinedOrNull(readName)) {
+                return null;
+            }
+
+            position = readName.new_position;
+
+            // Чтение IP-адреса сервера
+            const readIP = readByteStringFromFile(fd, position);
+            if (isUndefinedOrNull(readIP)) {
+                return null;
+            }
+
+            position = readIP.new_position;
+
+            // Чтение локации сервера
+            const readLocation = readByteStringFromFile(fd, position);
+            if (isUndefinedOrNull(readLocation)) {
+                return null;
+            }
+
+            position = readLocation.new_position;
+
+            this.#id = readId.buffer.readUint32BE();
+            this.#name = readName.data;
+            this.#ip = readIP.data;
+            this.#location = readLocation.data;
+
+            return position;
+        } catch (e) {
+            console.log("Ошибка: ", e);
+        }
+
+        return null;
     }
 
     get id() {
