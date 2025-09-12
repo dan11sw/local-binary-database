@@ -1,3 +1,6 @@
+import { isUndefinedOrNull } from "../utils/objector.js";
+import { writeBytesToFile } from "../utils/write-bytes.js";
+import ServerIndexModel from "./ServerIndexModel.js";
 import ServerModel from "./ServerModel.js";
 
 export default class ServerListModel {
@@ -40,12 +43,71 @@ export default class ServerListModel {
             return value.id == id;
         });
 
-        if(index >= 0) {
+        if (index >= 0) {
             this.#items.splice(index, 1);
             return true;
         }
 
         return false;
+    }
+
+    /**
+     * Запись данных о серверах в файл (+ формирование индексного файла)
+     * @param {number} fd Дескриптор открытого файла
+     * @param {string} filepath Путь к файлу
+     * @param {string} filepath_index Путь к файлу с индексами
+     * @returns {boolean} Результат записи в файл
+     */
+    writeToFile(fd, filepath = "", filepath_index) {
+        if (typeof fd !== "number") {
+            return false;
+        }
+
+        // Выделяем память под версию
+        let buffer = Buffer.alloc(Uint8Array.BYTES_PER_ELEMENT);
+        // Записываем версию
+        buffer.writeUint8(this.#version, 0);
+
+        let position = 0;
+        let new_position = writeBytesToFile(fd, buffer, position, filepath);
+        if (isUndefinedOrNull(new_position)) {
+            return false;
+        }
+
+        position += new_position;
+
+        // Выделяем память под количество записей
+        buffer = Buffer.alloc(Uint32Array.BYTES_PER_ELEMENT);
+        buffer.writeUint32BE(this.#size, 0);
+
+        new_position = writeBytesToFile(fd, buffer, position, filepath);
+        if (isUndefinedOrNull(new_position)) {
+            return false;
+        }
+
+        position += new_position;
+
+        // Если данных нет, то просто завершаем запись в файл
+        if (this.#items.length === 0) {
+            return true;
+        }
+
+        // Индексы для быстрого доступа к записям (определённое смещение по файлу filepath)
+        const indexes = [];
+        for (const item of this.#items) {
+            new_position = writeBytesToFile(fd, item.packageMsg(), position, filepath);
+            if (isUndefinedOrNull(new_position)) {
+                return false;
+            }
+
+            // Добавляем индексный элемент (идентификатор записи + позиция в файле данных, по которой запись была добавлена)
+            indexes.push(new ServerIndexModel(item.id, position));
+            position += new_position;
+        }
+
+        if(indexes.length === 0) {
+            return false;
+        }
     }
 
     packageMsg() {
@@ -62,7 +124,7 @@ export default class ServerListModel {
         let buffer = Buffer.concat([bufferVersion, bufferSize]);
 
         // Добавляем в общий буфер информацию о всех записях
-        for(const item of this.#items) {
+        for (const item of this.#items) {
             buffer = Buffer.concat([buffer, item.packageMsg()]);
         }
 

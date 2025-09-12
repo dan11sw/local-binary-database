@@ -6,7 +6,7 @@ import fs from "fs";
  * @param {buffer: Buffer<ArrayBuffer>} buffer Буфер для записи
  * @param {number} position Смещение в бинарном файле
  * @param {string} filepath Путь до файла (для логов)
- * @returns {number} Новое смещение в бинарном файле
+ * @returns {number | null} Новое смещение в бинарном файле
  */
 export function writeBytesToFile(fd, buffer, position, filepath = "") {
     // Проверка на корректность типов
