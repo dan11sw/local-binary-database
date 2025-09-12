@@ -1,10 +1,9 @@
-import ServerModel from "./ServerModel";
-
+import ServerModel from "./ServerModel.js";
 
 export default class ServerListModel {
-    #version; // uint8
-    #size;    // uint32
-    #items;   // bytes
+    #version; // uint8  - Версия формата (как интерпретировать записи)
+    #size;    // uint32 - Количество записей
+    #items;   // bytes  - Записи
 
     constructor(version) {
         this.#version = version ?? 1;
@@ -27,6 +26,11 @@ export default class ServerListModel {
         return true;
     }
 
+    /**
+     * Удаление записи из списка по идентификатору
+     * @param {number} id Идентификатор записи
+     * @returns {boolean} Результат удаления записи из списка
+     */
     remove(id) {
         if (typeof id !== "number") {
             return false;
@@ -38,22 +42,31 @@ export default class ServerListModel {
 
         if(index >= 0) {
             this.#items.splice(index, 1);
+            return true;
         }
 
-        return true;
+        return false;
     }
 
     packageMsg() {
         // Выделяем память под версию
         let bufferVersion = Buffer.alloc(Uint8Array.BYTES_PER_ELEMENT);
-        let offset = 0;
-
         // Записываем версию
-        offset = bufferVersion.writeUint8(this.#version, 0);
+        bufferVersion.writeUint8(this.#version, 0);
 
         // Выделяем память под количество элементов
-        let bufferSize = Buffer.alloc(Uint16Array.BYTES_PER_ELEMENT);
-        // Записываем количество элементов в буфер;
+        let bufferSize = Buffer.alloc(Uint32Array.BYTES_PER_ELEMENT);
+        bufferSize.writeUint32BE(this.#size, 0);
+
+        // Объединяем независимые буферы в один с помощью статического метода Buffer.concat
+        let buffer = Buffer.concat([bufferVersion, bufferSize]);
+
+        // Добавляем в общий буфер информацию о всех записях
+        for(const item of this.#items) {
+            buffer = Buffer.concat([buffer, item.packageMsg()]);
+        }
+
+        return buffer;
     }
 
     get items() {

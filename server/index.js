@@ -2,29 +2,21 @@ import fs from "fs";
 import path from "path";
 
 import ServerModel from "./models/ServerModel.js";
+import ServerListModel from "./models/ServerListModel.js";
+import { writeBytesToFile } from "./utils/write-bytes.js";
 
+// Определяем рабочую директорию процесса
 const WorkingDirectory = process.cwd();
+// Определяем расположение папки для хранения базы данных
 const DataBaseDirectory = path.join(WorkingDirectory, "db");
 
 const model1 = new ServerModel(1, "server-1", "127.0.1.20", "Irkutsk");
-model1.loadFromMsg(model1.packageMsg());
-
-const model2 = new ServerModel();
-model2.loadFromMsg(model1.packageMsg());
+const model2 = new ServerModel(2, "server-2", "192.0.81.122", "Moscow City");
 
 try {
     const filepath = path.join(DataBaseDirectory, "data.bin");
-    const fd = fs.openSync(path.join(DataBaseDirectory, "data.bin"), "r");
+    const filepathList = path.join(DataBaseDirectory, "data_list.bin");
     
-    const model3 = new ServerModel();
-    model3.print();
-
-    console.log("Offset: ", model3.loadFromFile(fd, 0, filepath));
-    model3.print();
-
-    // fs.writeFileSync(fd, model1.packageMsg());
-
-    fs.closeSync(fd);
 } catch (err) {
     console.error('Ошибка:', err);
 }
