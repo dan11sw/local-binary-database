@@ -1,9 +1,12 @@
+import fs, { readv } from "fs";
+
 import { isUndefinedOrNull } from "../utils/objector.js";
 import { writeBytesToFile } from "../utils/write-bytes.js";
 import ServerIndexModel from "./ServerIndexModel.js";
 import ServerModel from "./ServerModel.js";
+import { readBytesFromFile } from "../utils/read-bytes.js";
 
-export default class ServerListModel {
+export default class ListModel {
     #version; // uint8  - Версия формата (как интерпретировать записи)
     #size;    // uint32 - Количество записей
     #items;   // bytes  - Записи
@@ -16,10 +19,13 @@ export default class ServerListModel {
 
     /**
      * Добавление нового элемента
-     * @param {ServerModel} item 
+     * @param {*} item Элемент для записи 
      */
     push(item) {
-        if (!(item instanceof ServerModel)) {
+        // Добавляем только те элементы, у которых есть функция packageMsg и идентификатор записи (id)
+        if (isUndefinedOrNull(item.packageMsg) || (typeof item.packageMsg !== "function")) {
+            return false;
+        } else if (isUndefinedOrNull(item.id) || (typeof item.id !== "number")) {
             return false;
         }
 
@@ -52,16 +58,72 @@ export default class ServerListModel {
     }
 
     /**
+     * Чтение данных из бинарного файла
+     * @param {string} filepath Путь до файла
+     * @returns {number | null} Смещение в бинарном файле
+     */
+    loadFromFile(filepath = "") {
+        if ((typeof filepath !== "string" || filepath.length === 0) ||
+            !fs.existsSync(filepath)) {
+            return null;
+        }
+
+        try {
+            const fd = fs.openSync(filepath, "r");
+            let position = 0;
+
+            // Чтение версии
+            const readVersion = readBytesFromFile(fd, position, Uint8Array.BYTES_PER_ELEMENT, filepath);
+            if (isUndefinedOrNull(readVersion)) {
+                return null;
+            }
+
+            position = readVersion.new_position;
+            this.#version = readVersion.buffer.readUint8(0);
+
+            // Чтение количества записей
+            const readSize = readBytesFromFile(fd, position, Uint32Array.BYTES_PER_ELEMENT, filepath);
+            if (isUndefinedOrNull(readSize)) {
+                return null;
+            }
+
+            position = readSize.new_position;
+            this.#size = readSize.buffer.readUint32BE(0);
+
+            // Чтение элементов
+            for(let i = 0; i < this.#size; i++) {
+                const item = new ServerModel();
+
+                const new_position = item.loadFromFile(fd, position, filepath);
+                if(isUndefinedOrNull(new_position)) {
+                    return null;
+                }
+
+                position = new_position;
+                this.items.push(item);
+            }
+
+            return position;
+        } catch (e) {
+            console.log("Ошибка: ", e);
+        }
+
+        return null;
+    }
+
+    /**
      * Запись данных о серверах в файл (+ формирование индексного файла)
-     * @param {number} fd Дескриптор открытого файла
      * @param {string} filepath Путь к файлу
      * @param {string} filepath_index Путь к файлу с индексами
      * @returns {boolean} Результат записи в файл
      */
-    writeToFile(fd, filepath = "", filepath_index) {
-        if (typeof fd !== "number") {
+    writeToFile(filepath = "", filepath_index = "") {
+        if ((typeof filepath !== "string" || filepath.length === 0) ||
+            typeof filepath_index !== "string" || filepath_index.length === 0) {
             return false;
         }
+
+        const fd = fs.openSync(filepath, "w");
 
         // Выделяем память под версию
         let buffer = Buffer.alloc(Uint8Array.BYTES_PER_ELEMENT);
@@ -69,23 +131,19 @@ export default class ServerListModel {
         buffer.writeUint8(this.#version, 0);
 
         let position = 0;
-        let new_position = writeBytesToFile(fd, buffer, position, filepath);
-        if (isUndefinedOrNull(new_position)) {
+        position = writeBytesToFile(fd, buffer, position, filepath);
+        if (isUndefinedOrNull(position)) {
             return false;
         }
-
-        position += new_position;
 
         // Выделяем память под количество записей
         buffer = Buffer.alloc(Uint32Array.BYTES_PER_ELEMENT);
         buffer.writeUint32BE(this.#size, 0);
 
-        new_position = writeBytesToFile(fd, buffer, position, filepath);
-        if (isUndefinedOrNull(new_position)) {
+        position = writeBytesToFile(fd, buffer, position, filepath);
+        if (isUndefinedOrNull(position)) {
             return false;
         }
-
-        position += new_position;
 
         // Если данных нет, то просто завершаем запись в файл
         if (this.#items.length === 0) {
@@ -93,21 +151,31 @@ export default class ServerListModel {
         }
 
         // Индексы для быстрого доступа к записям (определённое смещение по файлу filepath)
-        const indexes = [];
+        const indexes = new ListModel(this.#version);
         for (const item of this.#items) {
-            new_position = writeBytesToFile(fd, item.packageMsg(), position, filepath);
-            if (isUndefinedOrNull(new_position)) {
+            const old_position = position;
+            position = writeBytesToFile(fd, item.packageMsg(), position, filepath);
+            if (isUndefinedOrNull(position)) {
                 return false;
             }
 
             // Добавляем индексный элемент (идентификатор записи + позиция в файле данных, по которой запись была добавлена)
-            indexes.push(new ServerIndexModel(item.id, position));
-            position += new_position;
+            if (!indexes.push(new ServerIndexModel(item.id, old_position))) {
+                break;
+            }
         }
 
-        if(indexes.length === 0) {
+        if (indexes.size !== this.#items.length) {
             return false;
         }
+
+        // Запись индексов в индексный файл "как есть"
+        const fdIndex = fs.openSync(filepath_index, "w");
+        if (!writeBytesToFile(fdIndex, indexes.packageMsg(), 0, filepath_index)) {
+            return false;
+        }
+
+        return true;
     }
 
     packageMsg() {
@@ -141,5 +209,26 @@ export default class ServerListModel {
 
     get version() {
         return this.#version;
+    }
+
+    // Реализация итератора
+    [Symbol.iterator]() {
+        let index = 0;
+        const items = this.#items;
+
+        return {
+            next() {
+                if (index < items.length) {
+                    return {
+                        value: items[index++],
+                        done: false
+                    };
+                } else {
+                    return {
+                        done: true
+                    };
+                }
+            }
+        };
     }
 }

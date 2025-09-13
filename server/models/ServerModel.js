@@ -12,19 +12,20 @@ export default class ServerModel {
     #location;     // uint16 + bytes  - Местоположение сервера
     #status;       // uint8           - Статус
     #capture_time; // uint16_t        - Время, которое сервер будет тратить на выполнение задач (в миллисекундах)
-    #created_at;   // uint64          - Время создания записи (в Unixtime)
-    #updated_at;   // uint64          - Время обновления записи (в Unixtime)
+    #created_at;   // uint32          - Время создания записи (в Unixtime)
+    #updated_at;   // uint32          - Время обновления записи (в Unixtime)
+
+    static #id_counter = 1; // Счётчик для идентификаторов
 
     /**
      * Конструктор модели сервера
-     * @param {number} id Идентификатор сервера
      * @param {string} title Название сервера
      * @param {string} ip_address IP-адрес сервера
      * @param {string} location Местоположение сервера
      * @param {number} capture_time Время, которое сервер будет тратить на выполнение задачи (в мс)
      */
-    constructor(id, title, ip_address, location, capture_time = 10000) {
-        this.#id = id ?? 0;
+    constructor(title, ip_address, location, capture_time = 10000) {
+        this.#id = ServerModel.#generateId();
         this.#title = title ?? "";
         this.#ip_address = ip_address ?? "127.0.0.1";
         this.#location = location ?? "";
@@ -35,8 +36,16 @@ export default class ServerModel {
 
         // Обновляем 
         const timeNow = Date.now();
-        this.#created_at = timeNow;
-        this.#updated_at = timeNow;
+        this.#created_at = Math.floor(timeNow / 1000);
+        this.#updated_at = Math.floor(timeNow / 1000);
+    }
+
+    /**
+     * Генератор идентификаторов для записей
+     * @returns {number} Новый идентификатор
+     */
+    static #generateId() {
+        return ServerModel.#id_counter++;
     }
 
     /**
@@ -49,7 +58,7 @@ export default class ServerModel {
             + Uint16Array.BYTES_PER_ELEMENT + Buffer.from(this.#title, encoding).length
             + Uint16Array.BYTES_PER_ELEMENT + Buffer.from(this.#ip_address, encoding).length
             + Uint16Array.BYTES_PER_ELEMENT + Buffer.from(this.#location, encoding).length
-            + Uint8Array.BYTES_PER_ELEMENT + 2 * BigUint64Array.BYTES_PER_ELEMENT
+            + Uint8Array.BYTES_PER_ELEMENT + 2 * Uint32Array.BYTES_PER_ELEMENT
             + Uint16Array.BYTES_PER_ELEMENT;
 
         return calc;
@@ -91,14 +100,14 @@ export default class ServerModel {
         offset += bufferLocation.length;
 
         // Записываем статус в буфер
-        offset += buffer.writeUint8(this.#status, offset);
+        offset = buffer.writeUint8(this.#status, offset);
 
         // Записываем время выполнение задачи сервером в буфер
-        offset += buffer.writeUint16BE(this.#capture_time, offset);
+        offset = buffer.writeUint16BE(this.#capture_time, offset);
 
         // Записываем время создания и время обновления записи
-        offset += buffer.writeBigUint64BE(this.#created_at, offset);
-        offset += buffer.writeBigUInt64BE(this.#updated_at, offset);
+        offset = buffer.writeUint32BE(this.#created_at, offset);
+        offset = buffer.writeUint32BE(this.#updated_at, offset);
 
         return buffer;
     }
@@ -153,12 +162,12 @@ export default class ServerModel {
         offset += Uint16Array.BYTES_PER_ELEMENT;
 
         // Чтение времени создания записи
-        const created_at = dataView.getBigUint64(offset);
-        offset += BigUint64Array.BYTES_PER_ELEMENT;
+        const created_at = dataView.getUint32(offset);
+        offset += Uint32Array.BYTES_PER_ELEMENT;
 
         // Чтение времени обновления записи
-        const updated_at = dataView.getBigUint64(offset);
-        offset += BigUint64Array.BYTES_PER_ELEMENT;
+        const updated_at = dataView.getUint32(offset);
+        offset += Uint32Array.BYTES_PER_ELEMENT;
 
         // Присвоение свойствам текущего объекта определённых данных
         this.#id = id;
@@ -217,16 +226,18 @@ export default class ServerModel {
 
             position = readLocation.new_position;
 
-            const bytes = Uint8Array.BYTES_PER_ELEMENT + 2 * BigUint64Array.BYTES_PER_ELEMENT
+            const bytes = Uint8Array.BYTES_PER_ELEMENT + 2 * Uint32Array.BYTES_PER_ELEMENT
                 + Uint16Array.BYTES_PER_ELEMENT;
 
-            const readBuffer = readBytesFromFile(fd, position, bytes, filepath);
-            if (isUndefinedOrNull(readBuffer)) {
+            const readBufferEx = readBytesFromFile(fd, position, bytes, filepath);
+            if (isUndefinedOrNull(readBufferEx)) {
                 return null;
             }
 
+            const readBuffer = readBufferEx.buffer.buffer;
+
             let offset = 0;
-            const dataView = new DataView(readBuffer.buffer, readBuffer.buffer.byteOffset, readBuffer.buffer.byteLength);
+            const dataView = new DataView(readBuffer, readBuffer.byteOffset, readBuffer.byteLength);
 
             const status = dataView.getUint8(offset);
             offset += Uint8Array.BYTES_PER_ELEMENT;
@@ -234,11 +245,11 @@ export default class ServerModel {
             const capture_time = dataView.getUint16(offset);
             offset += Uint16Array.BYTES_PER_ELEMENT;
 
-            const created_at = dataView.getBigUint64(offset);
-            offset += BigUint64Array.BYTES_PER_ELEMENT;
+            const created_at = dataView.getUint32(offset);
+            offset += Uint32Array.BYTES_PER_ELEMENT;
 
-            const updated_at = dataView.getBigUint64(offset);
-            offset += BigUint64Array.BYTES_PER_ELEMENT;
+            const updated_at = dataView.getUint32(offset);
+            offset += Uint32Array.BYTES_PER_ELEMENT;
 
             this.#id = readId.buffer.readUint32BE();
             this.#title = readName.data;
@@ -249,7 +260,7 @@ export default class ServerModel {
             this.#created_at = created_at;
             this.#updated_at = updated_at;
 
-            return position;
+            return (position + offset);
         } catch (e) {
             console.log("Ошибка: ", e);
         }
